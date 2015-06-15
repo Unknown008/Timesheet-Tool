@@ -4,8 +4,6 @@ package require Tk        8.6
 package require sqlite3   3.8.0.1
 package require tablelist 5.13
 
-tablelist::addBWidgetEntry
-
 ### sqlite3 ###
 sqlite3 ts timesheetdb
 
@@ -23,11 +21,19 @@ ts eval {
   )
 }
 
+ts eval {
+  CREATE TABLE IF NOT EXISTS alarm(
+    name text,
+    repeat int,
+    weekday int,
+    time text,
+    state int
+  )
+}
+
 ### GUI ###
 ## Window
 catch {destroy [winfo children .]}
-
-set cur_dir [file join [pwd] [file dirname [info script]]]
 
 wm title . "Timesheet Tool"
 wm geometry . +100+100
@@ -45,6 +51,8 @@ $m add command -label "Parked time" -command {export_parked} \
   -accelerator Ctrl+P
 $m add command -label "Certain code" -command {export_by_code} \
   -accelerator Ctrl+Shift+C
+$m add command -label "Alarm settings" -command {set_alarm} \
+  -accelerator Ctrl+A
 
 bind . <Control-KeyPress-s> {save_timesheet}
 bind . <Control-KeyPress-p> {export_parked}
@@ -387,7 +395,7 @@ proc sum_update {} {
       set ctext [lindex [$f.$a$b configure -text] 4]
       set total [expr {$total+$ctext}]
     }
-    $f.${a}4 configure -text $total -font "Arial 9 bold"
+    $f.${a}4 configure -text $total -font "\"Segeo UI\" 9 bold"
   }
   
   for {set b 1} {$b < 7} {incr b} {
@@ -396,14 +404,14 @@ proc sum_update {} {
       set ctext [lindex [$f.$a$b configure -text] 4]
       set total [expr {$total+$ctext}]
     }
-    $f.8$b configure -text $total -font "Arial 9 bold"
+    $f.8$b configure -text $total -font {"Segeo UI" 9 bold}
   }
 }
 
 for {set a 1} {$a < 9} {incr a} {
   grid columnconfigure $f [expr {$a-1}] -minsize 50
   for {set b 1} {$b < 7} {incr b} {
-    set font [expr {($b == 4 || $a == 8) ? "Arial 9 bold" : "Arial 9"}]
+    set font [expr {($b == 4 || $a == 8) ? {"Segeo UI" 9 bold} : {"Segeo UI" 9}}]
     grid [label $f.$a$b -text 0.0 -font $font] -row $b -column $a
   }
 }
@@ -432,23 +440,69 @@ tablelist::tablelist $f.tab -columns {
   -selecttype cell -showeditcursor 0 -showseparators 1 \
   -stripebackground #C4D1DF -editendcommand tsvalidation -selectmode extended \
   -showarrow 1 -arrowstyle sunken8x7 -labelcommand tablelist::sortByColumn
-  
-$f.tab columnconfigure 0 -editable yes
-$f.tab columnconfigure 1 -editable yes
-$f.tab columnconfigure 2 -editable yes
-$f.tab columnconfigure 3 -editable yes
-$f.tab columnconfigure 4 -editable yes
-$f.tab columnconfigure 5 -editable yes -align left -labelalign center
-$f.tab columnconfigure 6 -sortmode real -editable yes -formatcommand format_time \
-  -background gray80
-$f.tab columnconfigure 7 -sortmode real -editable yes -formatcommand format_time \
-  -background gray80
-$f.tab columnconfigure 8 -sortmode real -editable yes -formatcommand format_time
-$f.tab columnconfigure 9 -sortmode real -editable yes -formatcommand format_time
-$f.tab columnconfigure 10 -sortmode real -editable yes -formatcommand format_time
-$f.tab columnconfigure 11 -sortmode real -editable yes -formatcommand format_time
-$f.tab columnconfigure 12 -sortmode real -editable yes -formatcommand format_time
-$f.tab columnconfigure 13 -sortmode real -editable no -formatcommand format_time
+
+$f.tab configcolumnlist {
+  0 -editable yes
+  1 -editable yes
+  2 -editable yes
+  3 -editable yes
+  4 -editable yes
+  5 -editable yes
+  5 -align left
+  5 -labelalign center
+  6 -sortmode command
+  6 -editable yes
+  6 -formatcommand format_time
+  6 -background gray80
+  6 -sortcommand time_sort
+  7 -sortmode command
+  7 -editable yes
+  7 -formatcommand format_time
+  7 -background gray80
+  7 -sortcommand time_sort
+  8 -sortmode command
+  8 -editable yes
+  8 -formatcommand format_time
+  8 -sortcommand time_sort
+  9 -sortmode command
+  9 -editable yes
+  9 -formatcommand format_time
+  9 -sortcommand time_sort
+  10 -sortmode command
+  10 -editable yes
+  10 -formatcommand format_time
+  10 -sortcommand time_sort
+  11 -sortmode command
+  11 -editable yes
+  11 -formatcommand format_time
+  11 -sortcommand time_sort
+  12 -sortmode command
+  12 -editable yes
+  12 -formatcommand format_time
+  12 -sortcommand time_sort
+  13 -sortmode command
+  13 -editable no
+  13 -formatcommand format_time
+  13 -sortcommand time_sort
+}
+
+proc time_sort {a b} {
+  if {[string compare $a $b] == 0} {return 0}
+  lassign {0 0} inta intb
+  if {![string is double $a]} {set inta 1}
+  if {![string is double $b]} {set intb 2}
+
+  # $inta + $intb =
+  # 0 => both are numbers
+  # 1 => only intb is number, so $intb is larger
+  # 2 => only inta is number, so $inta is larger
+  # 3 => none are numbers, both are blanks, already handled
+  switch [expr {$inta+$intb}] {
+    0 {return [expr {$a > $b ? 1 : -1}]}
+    1 {return -1}
+    2 {return 1}
+  }
+}
 
 proc tsvalidation {table row col text} {
   switch $col {
@@ -726,15 +780,100 @@ proc ts_about {} {
   set w .abt
   catch {destroy $w}
   toplevel $w
+  
+  wm geometry $w +200+200
   wm title $w "About Timesheet Tool"
   
-  label $w.l1 -text "Author:"
-  label $w.l2 -text "Git:"
-  label $w.l3 -text "Jerry Yong"
-  label $w.l4 -text ""
+  pack [frame $w.fm] -padx 10 -pady 10
+  set w $w.fm
+  
+  grid [frame $w.fup] -row 0 -column 0
+  
+  label $w.fup.l1 -text "Author:" -justify left
+  label $w.fup.l2 -text "Git:" -justify left
+  label $w.fup.l3 -text "Jerry Yong" -justify left
+  label $w.fup.l4 -text "https://github.com/Unknown008/Timesheet-Tool.git" \
+    -foreground blue -justify left -font {"Segeo UI" 9 underline}
+  bind $w.fup.l4 <ButtonPress-1> {
+    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool.git" &
+  }
+  bind $w.fup.l4 <Enter> {linkify %W 1}
+  bind $w.fup.l4 <Leave> {linkify %W 0}
+  
+  grid $w.fup.l1 -row 0 -column 0 -sticky w
+  grid $w.fup.l2 -row 1 -column 0 -sticky w
+  grid $w.fup.l3 -row 0 -column 1 -sticky w
+  grid $w.fup.l4 -row 1 -column 1 -sticky w
+  grid columnconfigure $w 0 -minsize 50
+  
+  grid [labelframe $w.fdown -padx 2 -pady 2 -text "GNU General Public Licence" \
+    -labelanchor n] -row 1 -column 0 -pady 10
+  text $w.fdown.t -setgrid 1 \
+    -height 17 -autosep 1 -background #F0F0F0 -wrap word -width 60 \
+    -font {"Segeo UI" 9} -relief flat
+  pack $w.fdown.t -expand yes -fill both
+  
+  $w.fdown.t insert end "
+    Timesheet Tool - Recording tool, making timesheet reconciliations easier!
+    Copyright \u00A9 2015 Jerry Yong <jeryysk.stillwaters@gmail.com>
 
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program. If not, see <http://www.gnu.org/licenses/>
+  "
+  $w.fdown.t configure -state disabled
+  
+  grid [ttk::button $w.b -text OK -command {abt_close}] -row 2 -column 0
+  
+  proc abt_close {} {
+    destroy .abt
+    focus .
+  }
+  
+  focus .abt
 }
 
-### To Do
-# === Tablelist
-# Fix sorting
+proc linkify {w state} {
+  $w configure -cursor [expr {$state ? "hand2" : "ibeam"}]
+}
+
+proc set_alarm {} {
+  set w .alarm
+  catch {destroy $w}
+  toplevel $w
+  
+  wm geometry $w +200+200
+  wm title $w "Alarm settings"
+  
+  
+}
+
+proc test_alarm {} {
+  set tests [ts eval {SELECT * FROM alarm WHERE state = 1}]
+  foreach {n r w t s} $tests {
+    if {[clock format [clock scan now] -format %u] ne $w} {
+      continue
+    }
+    if {[clock format [clock scan now] -format %H:%m] eq $t} {
+      ring_alarm
+    } else {
+      
+    }
+  }
+}
+
+proc ring_alarm {} {
+  #ring
+  if {$repeat == 0} {
+    ts eval {UPDATE alarm SET state = 0 HERE name = $name}
+  }
+}
