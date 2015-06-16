@@ -24,11 +24,37 @@ ts eval {
 ts eval {
   CREATE TABLE IF NOT EXISTS alarm(
     name text,
-    repeat int,
+    repeat text,
     weekday int,
     time text,
-    state int
+    state text
   )
+}
+
+ts eval {
+  CREATE TABLE IF NOT EXISTS shortcuts(
+    alias text,
+    code text,
+    tt text
+  )
+}
+
+ts eval {
+  CREATE TABLE IF NOT EXISTS config(
+    tablename text,
+    timestamp text
+  )
+}
+
+if {[ts eval {SELECT * FROM config}] == ""} {
+  set timestamp [clock scan now]
+  ts eval {INSERT INTO config VALUES("alarm", $timestamp)}
+  ts eval {INSERT INTO config VALUES("shortcuts", $timestamp)}
+  ts eval {
+    INSERT INTO alarm VALUES("Friday Buzz", "Y", "Fri", "17:00", "Off")
+  }
+  ts eval {INSERT INTO shortcuts VALUES("da", "24484112", "P")}
+  ts eval {INSERT INTO shortcuts VALUES("tr", "22087682", "P")}
 }
 
 ### GUI ###
@@ -53,10 +79,13 @@ $m add command -label "Certain code" -command {export_by_code} \
   -accelerator Ctrl+Shift+C
 $m add command -label "Alarm settings" -command {set_alarm} \
   -accelerator Ctrl+A
+$m add command -label "Shortcuts" -command {show_shortcuts} \
+  -accelerator Ctrl+Shift+S
 
 bind . <Control-KeyPress-s> {save_timesheet}
 bind . <Control-KeyPress-p> {export_parked}
 bind . <Control-Shift-KeyPress-c> {export_by_code}
+bind . <Control-Shift-KeyPress-s> {show_shortcuts}
 
 set m $menu.go
 menu $m -tearoff 0
@@ -117,20 +146,28 @@ proc down_update {} {
   reset_timesheet
   if {$lines != ""} {
     set cline ""
+    set clist ""
     foreach {w c s tt t a des d h} $lines {
       set row [expr {[.fdown.tab size]-1}]
       set wday [clock format [clock scan $d -format {%d/%m/%Y}] -format %u]
       set day [expr {$wday > 5 ? $wday-6 : $wday+1}]
       if {"$w$c$s$tt$t$a$des" != $cline} {
         if {$cline != ""} {
-          .fdown.tab insert $row [list $tt $t $c $a $s $des {*}$fweek]
+          .fdown.tab insert $row [list {*}$clist {*}$fweek]
         }
+        set clist [list $tt $t $c $a $s $des]
         set cline "$w$c$s$tt$t$a$des"
         set fweek [lrepeat 7 {}]
       }
       lset fweek $day $h
     }
     .fdown.tab insert $row [list $tt $t $c $a $s $des {*}$fweek]
+    for {set i 6} {$i <= 13} {incr i} {
+    top_update $i
+    }
+    for {set i 0} {$i <= $row} {incr i} {
+      total_update $i
+    }
   }
 }
 
@@ -395,7 +432,7 @@ proc sum_update {} {
       set ctext [lindex [$f.$a$b configure -text] 4]
       set total [expr {$total+$ctext}]
     }
-    $f.${a}4 configure -text $total -font "\"Segeo UI\" 9 bold"
+    $f.${a}4 configure -text $total -font {{Segeo UI} 9 bold}
   }
   
   for {set b 1} {$b < 7} {incr b} {
@@ -439,7 +476,7 @@ tablelist::tablelist $f.tab -columns {
   -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
   -selecttype cell -showeditcursor 0 -showseparators 1 \
   -stripebackground #C4D1DF -editendcommand tsvalidation -selectmode extended \
-  -showarrow 1 -arrowstyle sunken8x7 -labelcommand tablelist::sortByColumn
+  -labelcommand tablelist::sortByColumn
 
 $f.tab configcolumnlist {
   0 -editable yes
@@ -454,39 +491,39 @@ $f.tab configcolumnlist {
   6 -editable yes
   6 -formatcommand format_time
   6 -background gray80
-  6 -sortcommand time_sort
+  6 -sortcommand cust_sort
   7 -sortmode command
   7 -editable yes
   7 -formatcommand format_time
   7 -background gray80
-  7 -sortcommand time_sort
+  7 -sortcommand cust_sort
   8 -sortmode command
   8 -editable yes
   8 -formatcommand format_time
-  8 -sortcommand time_sort
+  8 -sortcommand cust_sort
   9 -sortmode command
   9 -editable yes
   9 -formatcommand format_time
-  9 -sortcommand time_sort
+  9 -sortcommand cust_sort
   10 -sortmode command
   10 -editable yes
   10 -formatcommand format_time
-  10 -sortcommand time_sort
+  10 -sortcommand cust_sort
   11 -sortmode command
   11 -editable yes
   11 -formatcommand format_time
-  11 -sortcommand time_sort
+  11 -sortcommand cust_sort
   12 -sortmode command
   12 -editable yes
   12 -formatcommand format_time
-  12 -sortcommand time_sort
+  12 -sortcommand cust_sort
   13 -sortmode command
   13 -editable no
   13 -formatcommand format_time
-  13 -sortcommand time_sort
+  13 -sortcommand cust_sort
 }
 
-proc time_sort {a b} {
+proc cust_sort {a b} {
   if {[string compare $a $b] == 0} {return 0}
   lassign {0 0} inta intb
   if {![string is double $a]} {set inta 1}
@@ -852,8 +889,55 @@ proc set_alarm {} {
   toplevel $w
   
   wm geometry $w +200+200
+  wm minsize $w 500 [winfo height $w]
   wm title $w "Alarm settings"
+  pack [frame $w.f] -fill both -expand 1 -side top -anchor n
+  set w $w.f
   
+  scrollbar $w.s -command [list $w.tab yview]
+  tablelist::tablelist $w.tab -columns {
+    15 "Name (unique)" center
+    15 "Repeat (Y/N)"   center
+    15 "Day (DDD)"      center
+    15 "Time (hh:mm)"   center
+    8 "On/Off"         center
+  } -stretch all -background white -yscrollcommand [list $w.s set] \
+    -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
+    -selecttype cell -showeditcursor 0 -showseparators 1 \
+    -stripebackground #C4D1DF -editendcommand alarmval -selectmode extended \
+    -labelcommand tablelist::sortByColumn
+  
+  $w.tab configcolumnlist {
+    0 -editable yes
+    1 -editable yes
+    2 -editable yes
+    3 -editable yes
+    4 -editable yes
+    0 -align left
+    0 -labelalign center
+    0 -sortmode command
+    0 -sortcommand cust_sort
+    1 -sortmode command
+    1 -sortcommand cust_sort
+    2 -sortmode command
+    2 -sortcommand cust_sort
+    3 -sortmode command
+    3 -sortcommand cust_sort
+    4 -sortmode command
+    4 -sortcommand cust_sort
+  }
+  
+  set results [ts eval {SELECT * FROM alarm}]
+  foreach {n r wd t s} $results {
+    set row [expr {[$w.tab size]-1}]
+    $w.tab insert $row [list $n $r $wd $t $s]
+  }
+  
+  pack $w.tab -fill both -expand 1 -side left -anchor n
+  pack $w.s -fill both -side right -anchor n
+}
+
+proc alarmval {table row col text} {
   
 }
 
@@ -876,4 +960,8 @@ proc ring_alarm {} {
   if {$repeat == 0} {
     ts eval {UPDATE alarm SET state = 0 HERE name = $name}
   }
+}
+
+proc show_shortcuts {} {
+
 }
