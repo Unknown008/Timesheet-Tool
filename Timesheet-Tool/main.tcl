@@ -27,7 +27,9 @@ ts eval {
     repeat text,
     weekday int,
     time text,
-    state text
+    state text,
+    header text,
+    description text
   )
 }
 
@@ -51,7 +53,7 @@ if {[ts eval {SELECT * FROM config}] == ""} {
   ts eval {INSERT INTO config VALUES("alarm", $timestamp)}
   ts eval {INSERT INTO config VALUES("shortcuts", $timestamp)}
   ts eval {
-    INSERT INTO alarm VALUES("Friday Buzz", "Y", "Fri", "17:00", "Off")
+    INSERT INTO alarm VALUES("Friday Buzz","Y","Fri","17:00","Off","Alarm!","It is time to complete and submit your timesheet!")
   }
   ts eval {INSERT INTO shortcuts VALUES("da", "24484112", "P")}
   ts eval {INSERT INTO shortcuts VALUES("tr", "22087682", "P")}
@@ -121,20 +123,21 @@ proc reset_timesheet {} {
     }
   }
   .fdown.tab delete top bottom
-  new_row
+  new_row .fdown.tab ts
 }
 
 proc ts_load {time} {
   switch $time {
-    "now" {
-      set date [get_friday [clock scan now]]
-    }
     "4ago" {
       set date [get_friday [clock scan "now 4 weeks ago"]]
+    }
+    default {
+      set date [get_friday [clock scan now]]
     }
   }
   .fup.left.date configure -text $date
   down_update
+  sum_update
 }
 
 proc down_update {} {
@@ -546,10 +549,8 @@ proc tsvalidation {table row col text} {
     0 {return [format_tt $text]}
     1 {return [format_type $text]}
     2 {
-      set code [format_code $text]
-      if {$code == 24484112 || $code == 22087682} {
-        $table cellconfigure $row,1 -text "P"
-      }
+      lassign [format_code $text] code type
+      $table cellconfigure $row,1 -text $type
       return $code
     }
     4 {return [format_bool $text]}
@@ -578,16 +579,15 @@ proc format_code {val} {
   if {$val == ""} {return $val}
   if {![string is integer $val]} {
     set ret ""
-    switch -nocase $val {
-      da {set ret 24484112}
-      tr {set ret 22087682}
-      default {}
+    set details [ts eval {SELECT * FROM shortcuts WHERE LOWER(alias) = LOWER($val)}]
+    if {$details != ""} {
+      lassign $details a ret t
     }
-    return $ret
+    return [list $ret $t]
   } elseif {[string length $val] != 8} {
-    return [string range $val 0 7]
+    return [list [string range $val 0 7] ""]
   } else {
-    return $val
+    return [list $val ""]
   }
 }
 
@@ -608,8 +608,12 @@ proc format_time {val} {
   }
 }
 
-proc new_row {} {
-  .fdown.tab insert end [list R {*}[lrepeat 13 {}]]
+proc new_row {tab type} {
+  switch $type {
+    ts {$tab insert end [list R {*}[lrepeat 13 {}]]}
+    alarm {$tab insert end [lrepeat 5 {}]}
+    shortcut {$tab insert end [lrepeat 3 {}]}
+  }
 }
 
 proc top_update {column} {
@@ -657,9 +661,6 @@ proc total_update {row} {
   $f cellconfigure $row,13 -text $sum
 }
 
-new_row
-down_update
-
 bind $f.tab <<TablelistCellUpdated>> {
   lassign %d x y
   if {$y >= 6} {
@@ -677,18 +678,8 @@ bind $f.tab <<TablelistCellUpdated>> {
     [lindex %d 1] != 0 &&
     [lindex [%W cellconfigure [join %d ,] -text] 4] ne ""
   } {
-    new_row
+    new_row .fdown.tab ts
   }
-}
-
-bind $f.tab <<TablelistSelect>> {
-  set cur [%W curcellselection]
-  #puts [tablelist::entrypathSubCmd %W]
-  # %W cellselection clear $cur end
-  # %W cellselection clear 0,0 end
-  # %W cellselection set active
-  # %W cellselection anchor active
-  # %W cellselection set $cur  
 }
 
 pack $f.tab -fill both -expand 1 -side left -anchor n
@@ -714,23 +705,24 @@ proc export_by_code {} {
     
     set types {{"Text files"   .txt}}
 
-    set file [tk_getSaveFile -filetypes $types -parent .ebe \
-      -initialfile "Export for $code.txt" -initialdir [pwd] \
-      -defaultextension .txt]
-    if {$file == ""} {return}
-
-    set f [open $file w]
     set lines [ts eval {SELECT * FROM timesheet WHERE code = $code}]
     if {$lines != ""} {
+      set file [tk_getSaveFile -filetypes $types -parent .ebe \
+        -initialfile "Export for $code.txt" -initialdir [pwd] \
+        -defaultextension .txt]
+      if {$file == ""} {return}
+
+      set f [open $file w]
       puts $f "Week\tEngagement Code\tParked?(Y/N)\tTimeType\tType\tActivity\tDescription\tDate\tHours"
       foreach {w c s tt t a des d h} $lines {
         puts $f "$w $c $s $tt $t $a $des $d $h"
       }
       tk_messageBox -title Complete -icon info -message "Export complete!"
+      close $f
     } else {
       tk_messageBox -title Error -icon error -message "No entries matching provided code found!"
     }
-    close $f
+
     focus .ebe
   }
   
@@ -754,8 +746,8 @@ proc export_parked {} {
   proc begin_export {} {
     set start [.ep.f1.start get]
     set end [.ep.f1.end get]
-    if {[regexp -- {^(?:start|\d{2}/\d{2}/\d{4})$} $start] || 
-        [regexp -- {^(?:end|\d{2}/\d{2}/\d{4})$} $end]
+    if {![regexp -- {^(?:start|\d{2}/\d{2}/\d{4})$} $start] || 
+        ![regexp -- {^(?:end|\d{2}/\d{2}/\d{4})$} $end]
     } {
       tk_messageBox -title Error -icon error -message "Invalid range!"
       focus .ep
@@ -764,14 +756,14 @@ proc export_parked {} {
     
     set types {{"Text files"   .txt}}
 
-    set file [tk_getSaveFile -filetypes $types -parent .ebe \
-      -initialfile "Export parked time from $start to $end.txt" -initialdir [pwd] \
-      -defaultextension .txt]
-    if {$file == ""} {return}
-    set f [open $file w]
-    
     set lines [ts eval {SELECT * FROM timesheet WHERE status = 'Y'}]
     if {$lines != ""} {
+      set file [tk_getSaveFile -filetypes $types -parent .ep \
+        -initialfile "Export parked time from $start to $end.txt" -initialdir [pwd] \
+        -defaultextension .txt]
+      if {$file == ""} {return}
+      set f [open $file w]
+      
       puts $f "Week\tEngagement Code\tParked?(Y/N)\tTimeType\tType\tActivity\tDescription\tDate\tHours"
       catch {set start [clock scan $start -format {%d/%m/%Y}]}
       catch {set end [clock scan $end -format {%d/%m/%Y}]}
@@ -782,10 +774,10 @@ proc export_parked {} {
         }
       }
       tk_messageBox -title Complete -icon info -message "Export complete!"
+      close $f
     } else {
-      tk_messageBox -title Error -icon error -message "No entries matching provided code found!"
+      tk_messageBox -title Error -icon error -message "No parked time found!"
     }
-    close $f
     focus .ep
   }
 
@@ -889,18 +881,20 @@ proc set_alarm {} {
   toplevel $w
   
   wm geometry $w +200+200
-  wm minsize $w 500 [winfo height $w]
+  wm minsize $w 900 [winfo height $w]
   wm title $w "Alarm settings"
   pack [frame $w.f] -fill both -expand 1 -side top -anchor n
   set w $w.f
   
   scrollbar $w.s -command [list $w.tab yview]
   tablelist::tablelist $w.tab -columns {
-    15 "Name (unique)" center
-    15 "Repeat (Y/N)"   center
-    15 "Day (DDD)"      center
-    15 "Time (hh:mm)"   center
-    8 "On/Off"         center
+    15 "Name (unique)"     center
+    15 "Repeat (Y/N)"      center
+    15 "Day (DDD)"         center
+    15 "Time (hh:mm)"      center
+    8 "On/Off"             center
+    15 "Alert header"      center
+    40 "Alert description" center
   } -stretch all -background white -yscrollcommand [list $w.s set] \
     -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
     -selecttype cell -showeditcursor 0 -showseparators 1 \
@@ -915,53 +909,217 @@ proc set_alarm {} {
     4 -editable yes
     0 -align left
     0 -labelalign center
-    0 -sortmode command
-    0 -sortcommand cust_sort
-    1 -sortmode command
-    1 -sortcommand cust_sort
-    2 -sortmode command
-    2 -sortcommand cust_sort
-    3 -sortmode command
-    3 -sortcommand cust_sort
-    4 -sortmode command
-    4 -sortcommand cust_sort
+    5 -labelalign center
+    5 -align left
+    5 -editable yes
+    6 -labelalign center
+    6 -align left
+    6 -editable yes
   }
   
   set results [ts eval {SELECT * FROM alarm}]
-  foreach {n r wd t s} $results {
+  foreach {n r wd t s h d} $results {
     set row [expr {[$w.tab size]-1}]
-    $w.tab insert $row [list $n $r $wd $t $s]
+    $w.tab insert $row [list $n $r $wd $t $s $h $d]
   }
   
   pack $w.tab -fill both -expand 1 -side left -anchor n
   pack $w.s -fill both -side right -anchor n
-}
-
-proc alarmval {table row col text} {
   
-}
-
-proc test_alarm {} {
-  set tests [ts eval {SELECT * FROM alarm WHERE state = 1}]
-  foreach {n r w t s} $tests {
-    if {[clock format [clock scan now] -format %u] ne $w} {
-      continue
+  new_row $w.tab alarm
+  
+  bind $w.tab <<TablelistCellUpdated>> {
+    set listing [list]
+    for {set i 0} {$i < [%W size]} {incr i} {
+      set rowData [lindex [%W rowconfigure $i -text] end]
+      if {"" ni $rowData} {
+        lappend listing $rowData
+      }
     }
-    if {[clock format [clock scan now] -format %H:%m] eq $t} {
-      ring_alarm
-    } else {
-      
+    ts eval {DELETE FROM alarm}
+    clear_alarm
+    foreach line $listing {
+      set data [join [lmap n $line {set n '$n'}] ","]
+      ts eval "INSERT INTO alarm VALUES($data)"
+      test_alarm
     }
   }
 }
 
-proc ring_alarm {} {
-  #ring
-  if {$repeat == 0} {
-    ts eval {UPDATE alarm SET state = 0 HERE name = $name}
+proc alarmval {table row col text} {
+  switch $col {
+    0 {return [format_an $table $col $text]}
+    1 {return [format_ar $text]}
+    2 {return [format_ad $text]}
+    3 {return [format_at $text]}
+    4 {return [format_as $text]}
+    5 {return $text}
+    6 {return $text}
+  }
+}
+
+proc format_an {table col val} {
+  set vals [lindex [$table columnconfigure $col -text] end]
+  if {$val in $vals} {
+    tk_messageBox -title Error -icon error -message "Please select a unique name!"
+    return ""
+  } else {
+    new_row $table alarm
+    return $val
+  }
+}
+
+proc format_ar {val} {
+  if {[string tolower $val] in [list y n]} {
+    return [string toupper $val]
+  } else {
+    return ""
+  }
+}
+
+proc format_ad {val} {
+  if {[string tolower $val] in [list mon tue wed thu fri sat sun]} {
+    return [string totitle $val]
+  } else {
+    return ""
+  }
+}
+
+proc format_at {val} {
+  if {[catch {set val [clock format [clock scan $val -format %H:%M] -format %H:%M]}]} {
+    return ""
+  } else {
+    return $val
+  }
+}
+
+proc format_as {val} {
+  if {[string tolower $val] in [list on off]} {
+    return [string totitle $val]
+  } else {
+    return ""
+  }
+}
+
+proc test_alarm {} {
+  puts testing_alarm
+  set tests [ts eval {SELECT * FROM alarm WHERE state = 'On'}]
+  foreach {n r w t s h d} $tests {
+    set delay [expr {([clock scan "$w $t"]-[clock scan now])*1000}]
+    if {$delay > 0} {
+      after $delay [list ring_alarm $n]
+    }
+  }
+}
+
+proc ring_alarm {name} {
+  lassign [ts eval {SELECT * FROM alarm WHERE name = $name}] n r w t s h d
+  tk_messageBox -title $h -message $d
+  if {$r eq "N"} {
+    ts eval {UPDATE alarm SET state = 'Off' WHERE name = $name}
+  } else {
+    set delay [expr {([clock add [clock scan "$w $t"] 1 week]-[clock scan now])*1000}]
+    after $delay [list ring_alarm $name]
+  }
+}
+
+proc clear_alarm {} {
+  set alarms [after info]
+  foreach alarm $alarms {
+    after cancel $alarm
   }
 }
 
 proc show_shortcuts {} {
-
+  set w .shortcuts
+  catch {destroy $w}
+  toplevel $w
+  
+  wm geometry $w +200+200
+  wm minsize $w 500 [winfo height $w]
+  wm title $w "Timesheet shortcuts"
+  pack [frame $w.f] -fill both -expand 1 -side top -anchor n
+  set w $w.f
+  
+  scrollbar $w.s -command [list $w.tab yview]
+  tablelist::tablelist $w.tab -columns {
+    15 "Shortcut"       center
+    15 "Code"           center
+    15 "Type (C/P/N)"   center
+  } -stretch all -background white -yscrollcommand [list $w.s set] \
+    -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
+    -selecttype cell -showeditcursor 0 -showseparators 1 \
+    -stripebackground #C4D1DF -editendcommand shortcutval -selectmode extended \
+    -labelcommand tablelist::sortByColumn
+  
+  $w.tab configcolumnlist {
+    0 -editable yes
+    1 -editable yes
+    2 -editable yes
+  }
+  
+  set results [ts eval {SELECT * FROM shortcuts}]
+  foreach {s c t} $results {
+    set row [expr {[$w.tab size]-1}]
+    $w.tab insert $row [list $s $c $t]
+  }
+  
+  pack $w.tab -fill both -expand 1 -side left -anchor n
+  pack $w.s -fill both -side right -anchor n
+  
+  new_row $w.tab shortcut
+  
+  bind $w.tab <<TablelistCellUpdated>> {
+    set listing [list]
+    for {set i 0} {$i < [%W size]} {incr i} {
+      set rowData [lindex [%W rowconfigure $i -text] end]
+      if {"" ni $rowData} {
+        lappend listing $rowData
+      }
+    }
+    ts eval {DELETE FROM shortcuts}
+    foreach line $listing {
+      set data [join [lmap n $line {set n '$n'}] ","]
+      ts eval "INSERT INTO shortcuts VALUES($data)"
+    }
+  }
 }
+
+proc shortcutval {table row col text} {
+  switch $col {
+    0 {return [format_sn $table $col $text]}
+    1 {return [format_sc $text]}
+    2 {return [format_st $text]}
+  }
+}
+
+proc format_sn {table col val} {
+  set vals [lindex [$table columnconfigure $col -text] end]
+  if {$val in $vals} {
+    tk_messageBox -title Error -icon error -message "Please select a unique name!"
+    return ""
+  } else {
+    new_row $table shortcut
+    return $val
+  }
+}
+
+proc format_sc {val} {
+  if {[string length $val] != 8} {
+    return [string range $val 0 7]
+  } else {
+    return $val
+  }
+}
+
+proc format_st {val} {
+  if {[string tolower $val] in [list c p n]} {
+    return [string toupper $val]
+  } else {
+    return ""
+  }
+}
+
+new_row .fdown.tab ts
+ts_load now
+test_alarm
