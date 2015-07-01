@@ -550,7 +550,9 @@ proc tsvalidation {table row col text} {
     1 {return [format_type $text]}
     2 {
       lassign [format_code $text] code type
-      $table cellconfigure $row,1 -text $type
+      if {$type ne ""} {
+        $table cellconfigure $row,1 -text $type
+      }
       return $code
     }
     4 {return [format_bool $text]}
