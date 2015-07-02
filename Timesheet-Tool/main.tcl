@@ -822,19 +822,29 @@ proc ts_about {} {
   
   label $w.fup.l1 -text "Author:" -justify left
   label $w.fup.l2 -text "Git:" -justify left
-  label $w.fup.l3 -text "Jerry Yong" -justify left
-  label $w.fup.l4 -text "https://github.com/Unknown008/Timesheet-Tool.git" \
+  label $w.fup.l3 -text "Wiki:" -justify left
+  label $w.fup.l4 -text "Jerry Yong" -justify left
+  label $w.fup.l5 -text "https://github.com/Unknown008/Timesheet-Tool.git" \
     -foreground blue -justify left -font {"Segeo UI" 9 underline}
-  bind $w.fup.l4 <ButtonPress-1> {
+  label $w.fup.l6 -text "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" \
+    -foreground blue -justify left -font {"Segeo UI" 9 underline}
+  bind $w.fup.l5 <ButtonPress-1> {
     eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool.git" &
   }
-  bind $w.fup.l4 <Enter> {linkify %W 1}
-  bind $w.fup.l4 <Leave> {linkify %W 0}
+  bind $w.fup.l5 <ButtonPress-1> {
+    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" &
+  }
+  bind $w.fup.l5 <Enter> {linkify %W 1}
+  bind $w.fup.l5 <Leave> {linkify %W 0}
+  bind $w.fup.l6 <Enter> {linkify %W 1}
+  bind $w.fup.l6 <Leave> {linkify %W 0}
   
   grid $w.fup.l1 -row 0 -column 0 -sticky w
   grid $w.fup.l2 -row 1 -column 0 -sticky w
-  grid $w.fup.l3 -row 0 -column 1 -sticky w
-  grid $w.fup.l4 -row 1 -column 1 -sticky w
+  grid $w.fup.l3 -row 2 -column 0 -sticky w
+  grid $w.fup.l4 -row 0 -column 1 -sticky w
+  grid $w.fup.l5 -row 1 -column 1 -sticky w
+  grid $w.fup.l6 -row 2 -column 1 -sticky w
   grid columnconfigure $w 0 -minsize 50
   
   grid [labelframe $w.fdown -padx 2 -pady 2 -text "GNU General Public Licence" \
