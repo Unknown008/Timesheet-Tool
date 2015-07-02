@@ -1,8 +1,10 @@
 ### Imports ###
-package require Tcl       8.6
-package require Tk        8.6
-package require sqlite3   3.8.0.1
-package require tablelist 5.13
+package require Tcl            8.6
+package require Tk             8.6
+package require sqlite3        3.8.0.1
+package require tablelist      5.13
+package require twapi          4.1.27
+package require twapi_resource
 
 ### sqlite3 ###
 sqlite3 ts timesheetdb
@@ -83,11 +85,14 @@ $m add command -label "Alarm settings" -command {set_alarm} \
   -accelerator Ctrl+A
 $m add command -label "Shortcuts" -command {show_shortcuts} \
   -accelerator Ctrl+Shift+S
+$m add separator
+$m add command -label "Close" -command {exit} -accelerator Ctrl+Q
 
 bind . <Control-KeyPress-s> {save_timesheet}
 bind . <Control-KeyPress-p> {export_parked}
 bind . <Control-KeyPress-C> {export_by_code}
 bind . <Control-KeyPress-S> {show_shortcuts}
+bind . <Control-KeyPress-q> {exit}
 
 set m $menu.go
 menu $m -tearoff 0
@@ -100,12 +105,12 @@ $m add command -label "Four weeks before" -command {ts_load "4ago"} \
 bind . <Control-KeyPress-w> {ts_load "now"}
 bind . <Control-KeyPress-b> {ts_load "4ago"}
 
-. configure -menu $menu
-
 set m $menu.about
 menu $m -tearoff 0
 $menu add cascade -label "Help" -menu $m -underline 0
 $m add command -label About -command {ts_about}
+
+. configure -menu $menu
 
 ## Common procs
 proc get_friday {date} {
@@ -396,7 +401,29 @@ proc calendar {w} {
   cal_display $cal $m $y
 }
 
-### Main window
+wm protocol . WM_DELETE_WINDOW min_to_tray
+
+proc min_to_tray {} {
+  set hand [twapi::load_icon_from_file tclkit.ico]
+  twapi::systemtray addicon $hand select
+  catch {destroy [winfo children .]}
+  wm withdraw .
+  
+  proc select {id event pos time} {
+    switch $event {
+      select {restore_win $id}
+      default {}
+    }
+  }
+
+  proc restore_win {id} {
+    wm state . normal
+    twapi::systemtray removeicon $id
+    focus .
+  }
+}
+
+### Main window ###
 pack [frame .fup] -side top -fill x -anchor n -pady 5
 pack [frame .fdown] -side top -fill both -anchor n -pady 5 -expand 1
 
@@ -807,86 +834,7 @@ proc close_export {w} {
   }
 }
 
-proc ts_about {} {
-  set w .abt
-  catch {destroy $w}
-  toplevel $w
-  
-  wm geometry $w +200+200
-  wm title $w "About Timesheet Tool"
-  
-  pack [frame $w.fm] -padx 10 -pady 10
-  set w $w.fm
-  
-  grid [frame $w.fup] -row 0 -column 0
-  
-  label $w.fup.l1 -text "Author:" -justify left
-  label $w.fup.l2 -text "Git:" -justify left
-  label $w.fup.l3 -text "Wiki:" -justify left
-  label $w.fup.l4 -text "Jerry Yong" -justify left
-  label $w.fup.l5 -text "https://github.com/Unknown008/Timesheet-Tool.git" \
-    -foreground blue -justify left -font {"Segeo UI" 9 underline}
-  label $w.fup.l6 -text "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" \
-    -foreground blue -justify left -font {"Segeo UI" 9 underline}
-  bind $w.fup.l5 <ButtonPress-1> {
-    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool.git" &
-  }
-  bind $w.fup.l5 <ButtonPress-1> {
-    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" &
-  }
-  bind $w.fup.l5 <Enter> {linkify %W 1}
-  bind $w.fup.l5 <Leave> {linkify %W 0}
-  bind $w.fup.l6 <Enter> {linkify %W 1}
-  bind $w.fup.l6 <Leave> {linkify %W 0}
-  
-  grid $w.fup.l1 -row 0 -column 0 -sticky w
-  grid $w.fup.l2 -row 1 -column 0 -sticky w
-  grid $w.fup.l3 -row 2 -column 0 -sticky w
-  grid $w.fup.l4 -row 0 -column 1 -sticky w
-  grid $w.fup.l5 -row 1 -column 1 -sticky w
-  grid $w.fup.l6 -row 2 -column 1 -sticky w
-  grid columnconfigure $w 0 -minsize 50
-  
-  grid [labelframe $w.fdown -padx 2 -pady 2 -text "GNU General Public Licence" \
-    -labelanchor n] -row 1 -column 0 -pady 10
-  text $w.fdown.t -setgrid 1 \
-    -height 17 -autosep 1 -background "#F0F0F0" -wrap word -width 60 \
-    -font {"Segeo UI" 9} -relief flat
-  pack $w.fdown.t -expand yes -fill both
-  
-  $w.fdown.t insert end "
-    Timesheet Tool - Recording tool, making timesheet reconciliations easier!
-    Copyright \u00A9 2015 Jerry Yong <jeryysk.stillwaters@gmail.com>
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program. If not, see <http://www.gnu.org/licenses/>
-  "
-  $w.fdown.t configure -state disabled
-  
-  grid [ttk::button $w.b -text OK -command {abt_close}] -row 2 -column 0
-  
-  proc abt_close {} {
-    destroy .abt
-    focus .
-  }
-  
-  focus .abt
-}
-
-proc linkify {w state} {
-  $w configure -cursor [expr {$state ? "hand2" : "ibeam"}]
-}
-
+### Alarm settings ###
 proc set_alarm {} {
   set w .alarm
   catch {destroy $w}
@@ -1013,6 +961,7 @@ proc format_as {val} {
   }
 }
 
+
 proc test_alarm {} {
   puts testing_alarm
   set tests [ts eval {SELECT * FROM alarm WHERE state = 'On'}]
@@ -1130,6 +1079,87 @@ proc format_st {val} {
   } else {
     return ""
   }
+}
+
+### About ###
+proc ts_about {} {
+  set w .abt
+  catch {destroy $w}
+  toplevel $w
+  
+  wm geometry $w +200+200
+  wm title $w "About Timesheet Tool"
+  
+  pack [frame $w.fm] -padx 10 -pady 10
+  set w $w.fm
+  
+  grid [frame $w.fup] -row 0 -column 0
+  
+  label $w.fup.l1 -text "Author:" -justify left
+  label $w.fup.l2 -text "Git:" -justify left
+  label $w.fup.l3 -text "Wiki:" -justify left
+  label $w.fup.l4 -text "Jerry Yong" -justify left
+  label $w.fup.l5 -text "https://github.com/Unknown008/Timesheet-Tool.git" \
+    -foreground blue -justify left -font {"Segeo UI" 9 underline}
+  label $w.fup.l6 -text "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" \
+    -foreground blue -justify left -font {"Segeo UI" 9 underline}
+  bind $w.fup.l5 <ButtonPress-1> {
+    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool.git" &
+  }
+  bind $w.fup.l5 <ButtonPress-1> {
+    eval exec [auto_execok start] "https://github.com/Unknown008/Timesheet-Tool/wiki/Documentation" &
+  }
+  bind $w.fup.l5 <Enter> {linkify %W 1}
+  bind $w.fup.l5 <Leave> {linkify %W 0}
+  bind $w.fup.l6 <Enter> {linkify %W 1}
+  bind $w.fup.l6 <Leave> {linkify %W 0}
+  
+  grid $w.fup.l1 -row 0 -column 0 -sticky w
+  grid $w.fup.l2 -row 1 -column 0 -sticky w
+  grid $w.fup.l3 -row 2 -column 0 -sticky w
+  grid $w.fup.l4 -row 0 -column 1 -sticky w
+  grid $w.fup.l5 -row 1 -column 1 -sticky w
+  grid $w.fup.l6 -row 2 -column 1 -sticky w
+  grid columnconfigure $w 0 -minsize 50
+  
+  grid [labelframe $w.fdown -padx 2 -pady 2 -text "GNU General Public Licence" \
+    -labelanchor n] -row 1 -column 0 -pady 10
+  text $w.fdown.t -setgrid 1 \
+    -height 17 -autosep 1 -background "#F0F0F0" -wrap word -width 60 \
+    -font {"Segeo UI" 9} -relief flat
+  pack $w.fdown.t -expand yes -fill both
+  
+  $w.fdown.t insert end "
+    Timesheet Tool - Recording tool, making timesheet reconciliations easier!
+    Copyright \u00A9 2015 Jerry Yong <jeryysk.stillwaters@gmail.com>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program. If not, see <http://www.gnu.org/licenses/>
+  "
+  $w.fdown.t configure -state disabled
+  
+  grid [ttk::button $w.b -text OK -command {abt_close}] -row 2 -column 0
+  
+  proc abt_close {} {
+    destroy .abt
+    focus .
+  }
+  
+  focus .abt
+}
+
+proc linkify {w state} {
+  $w configure -cursor [expr {$state ? "hand2" : "ibeam"}]
 }
 
 new_row .fdown.tab ts
