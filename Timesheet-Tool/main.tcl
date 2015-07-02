@@ -86,8 +86,8 @@ $m add command -label "Shortcuts" -command {show_shortcuts} \
 
 bind . <Control-KeyPress-s> {save_timesheet}
 bind . <Control-KeyPress-p> {export_parked}
-bind . <Control-Shift-KeyPress-c> {export_by_code}
-bind . <Control-Shift-KeyPress-s> {show_shortcuts}
+bind . <Control-KeyPress-C> {export_by_code}
+bind . <Control-KeyPress-S> {show_shortcuts}
 
 set m $menu.go
 menu $m -tearoff 0
@@ -97,8 +97,8 @@ $m add command -label "Current week" -command {ts_load "now"} \
 $m add command -label "Four weeks before" -command {ts_load "4ago"} \
   -accelerator Ctrl+B
     
-bind . <Control-KeyPress-W> {ts_load "now"}
-bind . <Control-KeyPress-B> {ts_load "4ago"}
+bind . <Control-KeyPress-w> {ts_load "now"}
+bind . <Control-KeyPress-b> {ts_load "4ago"}
 
 . configure -menu $menu
 
@@ -166,7 +166,7 @@ proc down_update {} {
     }
     .fdown.tab insert $row [list $tt $t $c $a $s $des {*}$fweek]
     for {set i 6} {$i <= 13} {incr i} {
-    top_update $i
+      top_update $i
     }
     for {set i 0} {$i <= $row} {incr i} {
       total_update $i
@@ -199,7 +199,7 @@ proc save_timesheet {} {
       puts "[join $repeats ","],'$d',$dayhours"
     }
   }
-  tk_messageBox -title Notice -message "Timesheet saved!"
+  tk_messageBox -title "Notice" -message "Timesheet saved!"
 }
 
 ## Calendar
@@ -478,7 +478,7 @@ tablelist::tablelist $f.tab -columns {
 } -stretch all -background white -yscrollcommand [list $f.s set] \
   -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
   -selecttype cell -showeditcursor 0 -showseparators 1 \
-  -stripebackground #C4D1DF -editendcommand tsvalidation -selectmode extended \
+  -stripebackground "#C4D1DF" -editendcommand tsvalidation -selectmode extended \
   -labelcommand tablelist::sortByColumn
 
 $f.tab configcolumnlist {
@@ -840,7 +840,7 @@ proc ts_about {} {
   grid [labelframe $w.fdown -padx 2 -pady 2 -text "GNU General Public Licence" \
     -labelanchor n] -row 1 -column 0 -pady 10
   text $w.fdown.t -setgrid 1 \
-    -height 17 -autosep 1 -background #F0F0F0 -wrap word -width 60 \
+    -height 17 -autosep 1 -background "#F0F0F0" -wrap word -width 60 \
     -font {"Segeo UI" 9} -relief flat
   pack $w.fdown.t -expand yes -fill both
   
@@ -900,7 +900,7 @@ proc set_alarm {} {
   } -stretch all -background white -yscrollcommand [list $w.s set] \
     -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
     -selecttype cell -showeditcursor 0 -showseparators 1 \
-    -stripebackground #C4D1DF -editendcommand alarmval -selectmode extended \
+    -stripebackground "#C4D1DF" -editendcommand alarmval -selectmode extended \
     -labelcommand tablelist::sortByColumn
   
   $w.tab configcolumnlist {
@@ -1051,7 +1051,7 @@ proc show_shortcuts {} {
   } -stretch all -background white -yscrollcommand [list $w.s set] \
     -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
     -selecttype cell -showeditcursor 0 -showseparators 1 \
-    -stripebackground #C4D1DF -editendcommand shortcutval -selectmode extended \
+    -stripebackground "#C4D1DF" -editendcommand shortcutval -selectmode extended \
     -labelcommand tablelist::sortByColumn
   
   $w.tab configcolumnlist {
