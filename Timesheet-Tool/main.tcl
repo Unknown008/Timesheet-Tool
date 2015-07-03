@@ -5,6 +5,26 @@ package require sqlite3        3.8.0.1
 package require tablelist      5.13
 package require twapi          4.1.27
 
+### Restore previous instance if any ###
+set exist [twapi::find_windows -text "Timesheet Tool"]
+if {$exist != ""} {
+  foreach win $exist {
+    if {[twapi::get_window_real_class $win] eq "TkTopLevel"} {
+      twapi::show_window $win -activate
+      exit
+    }
+  }
+}
+
+set path [file join [pwd] tclkit.ico]
+if {![file exists $path]} {
+  set exec [lindex [file split $::argv0] end-1]
+  set path [file join [pwd] $exec tclkit.ico]
+}
+
+set hand [twapi::load_icon_from_file $path]
+twapi::systemtray addicon $hand select
+
 ### sqlite3 ###
 sqlite3 ts timesheetdb
 
@@ -403,23 +423,21 @@ proc calendar {w} {
 wm protocol . WM_DELETE_WINDOW min_to_tray
 
 proc min_to_tray {} {
-  set hand [twapi::load_icon_from_file tclkit.ico]
-  twapi::systemtray addicon $hand select
   catch {destroy [winfo children .]}
   wm withdraw .
-  
-  proc select {id event pos time} {
-    switch $event {
-      select {restore_win $id}
-      default {}
-    }
-  }
+}
 
-  proc restore_win {id} {
-    wm state . normal
-    twapi::systemtray removeicon $id
-    focus .
+proc select {id event pos time} {
+  switch $event {
+    select {restore_win $id}
+    default {}
   }
+}
+
+proc restore_win {id} {
+  wm state . normal
+  raise .
+  focus .
 }
 
 ### Main window ###
