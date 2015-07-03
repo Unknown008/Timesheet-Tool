@@ -4,7 +4,6 @@ package require Tk             8.6
 package require sqlite3        3.8.0.1
 package require tablelist      5.13
 package require twapi          4.1.27
-package require twapi_resource
 
 ### sqlite3 ###
 sqlite3 ts timesheetdb
