@@ -9,11 +9,7 @@ package require twapi          4.1.27
 set exist [twapi::find_windows -text "Timesheet Tool"]
 if {$exist != ""} {
   foreach win $exist {
-    if {[twapi::get_window_real_class $win] eq "TkTopLevel"} {
-      twapi::show_window $win -activate
-      exit
-    }
-  }
+    if {[twapi::get_window_real_class $win] eq "TkTopLevel"} {o
 }
 
 set path [file join [pwd] tclkit.ico]
@@ -192,7 +188,7 @@ proc down_update {} {
     for {set i 6} {$i <= 13} {incr i} {
       top_update $i
     }
-    for {set i 0} {$i <= $row} {incr i} {
+    for {set i 0} {$i <= [expr {$row+1}]} {incr i} {
       total_update $i
     }
   }
