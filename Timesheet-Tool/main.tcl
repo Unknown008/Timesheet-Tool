@@ -9,17 +9,25 @@ package require twapi          4.1.27
 set exist [twapi::find_windows -text "Timesheet Tool"]
 if {$exist != ""} {
   foreach win $exist {
-    if {[twapi::get_window_real_class $win] eq "TkTopLevel"} {o
+    if {[twapi::get_window_real_class $win] eq "TkTopLevel"} {
+      twapi::show_window $win -activate
+      exit
+    }
+  }
 }
 
 set path [file join [pwd] tclkit.ico]
 if {![file exists $path]} {
   set exec [lindex [file split $::argv0] end-1]
   set path [file join [pwd] $exec tclkit.ico]
+  file copy $path [pwd]
+  set hand [twapi::load_icon_from_file tclkit.ico]
+  twapi::systemtray addicon $hand select
+  file delete tclkit.ico
+} else {
+  set hand [twapi::load_icon_from_file tclkit.ico]
+  twapi::systemtray addicon $hand select
 }
-
-set hand [twapi::load_icon_from_file $path]
-twapi::systemtray addicon $hand select
 
 ### sqlite3 ###
 sqlite3 ts timesheetdb
