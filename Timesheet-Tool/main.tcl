@@ -483,7 +483,7 @@ proc sum_update {} {
       set ctext [lindex [$f.$a$b configure -text] 4]
       set total [expr {$total+$ctext}]
     }
-    $f.${a}4 configure -text $total -font {{Segeo UI} 9 bold}
+    $f.${a}4 configure -text [format %.1f $total] -font {{Segeo UI} 9 bold}
   }
   
   for {set b 1} {$b < 7} {incr b} {
@@ -492,7 +492,7 @@ proc sum_update {} {
       set ctext [lindex [$f.$a$b configure -text] 4]
       set total [expr {$total+$ctext}]
     }
-    $f.8$b configure -text $total -font {"Segeo UI" 9 bold}
+    $f.8$b configure -text [format %.1f $total] -font {"Segeo UI" 9 bold}
   }
 }
 
@@ -696,7 +696,7 @@ proc top_update {column} {
   set f .fup.right
   set col [expr {$column-5}]
   foreach {key val} [array get sums] {
-    $f.$col$row($key) configure -text $val
+    $f.$col$row($key) configure -text [format %.1f $val]
   }
 }
 
