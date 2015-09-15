@@ -108,6 +108,7 @@ $m add command -label "Alarm settings" -command {set_alarm} \
   -accelerator Ctrl+A
 $m add command -label "Shortcuts" -command {show_shortcuts} \
   -accelerator Ctrl+Shift+S
+$m add command -label "SQL Query" -command {sql_query}
 $m add separator
 $m add command -label "Close" -command {exit} -accelerator Ctrl+Q
 
@@ -530,7 +531,7 @@ tablelist::tablelist $f.tab -columns {
   -arrowstyle sunken8x7 -showarrow 1 -resizablecolumns 0 \
   -selecttype cell -showeditcursor 0 -showseparators 1 \
   -stripebackground "#C4D1DF" -editendcommand tsvalidation -selectmode extended \
-  -labelcommand tablelist::sortByColumn
+  -labelcommand tablelist::sortByColumn -editstartcommand select_all
 
 $f.tab configcolumnlist {
   0 -editable yes
@@ -1190,6 +1191,298 @@ proc go_week {amt} {
   .fup.left.f.date configure -text $newdate
   down_update
   sum_update
+}
+
+proc select_all {w r c v} {
+  after idle [list [$w entrypath] selection range 0 end]
+  return $v
+}
+
+proc sql_query {} {
+  set results [ts eval {SELECT 1 FROM timesheet}]
+  if {[llength $results] < 1} {
+    tk_messageBox -icon error -title Error -message "No data inserted yet!"
+    return
+  }
+  set w .query
+  catch {destroy $w}
+  toplevel $w
+  wm title .query "SQLite Query"
+  wm geometry . +100+50
+  set menu $w.menu
+  menu $menu -tearoff 0
+  $menu add command -label "Run" -command [list run_query $w]
+  $menu add command -label "Export" -command [list export_results $w]
+  
+  bind $w <KeyPress-F5> [list run_query $w]
+  
+  $w configure -menu $menu
+  
+  ttk::notebook $w.note
+  set n $w.note
+  grid $n -row 0 -column 0 -sticky nsew
+  
+  ttk::notebook::enableTraversal $n
+  
+  ttk::frame $n.tableview -height 300 -width 300 -padding "5 5"
+  $n add $n.tableview -text " Tableview "
+  
+  ttk::frame $n.sqlview -height 300 -width 300 -padding "5 5"
+  $n add $n.sqlview -text " SQL "
+  
+  label $n.tableview.tablelab -text "Table:"
+  ttk::combobox $n.tableview.tablecbox -values {timesheet alarm shortcurs config}
+  
+  grid $n.tableview.tablelab -row 0 -column 0 -padx 5 -pady 5
+  grid $n.tableview.tablecbox -row 0 -column 1 -padx 5 -pady 5
+  
+  bind $n.tableview.tablecbox <<ComboboxSelected>> {update_tableview %W 1}
+  
+  pack [text $n.sqlview.text -yscrollcommand "$n.sqlview.s set"] -side left \
+    -anchor ne -fill both -expand 1
+  pack [scrollbar $n.sqlview.s -command "$n.sqlview.text yview"] -fill y -side left
+  
+  frame $w.sidepane -height 500 -width 10
+  grid $w.sidepane -row 0 -column 1 -sticky nsew
+  
+  
+  ttk::treeview $w.sidepane.tree -columns table -yscroll "$w.sidepane.vs set"
+  $w.sidepane.tree heading \#0 -text "Tables"
+  ttk::scrollbar $w.sidepane.vs -command "$w.sidepane.tree yview"
+  
+  $w.sidepane.tree column table -stretch 0 -width 10
+  
+  proc populate_tree {tree} {
+    set tables [ts eval {SELECT name FROM sqlite_master WHERE type = 'table'}]
+    foreach table $tables {
+      set node [$tree insert {} end -text $table]
+      set fields [ts eval {
+        SELECT sql FROM sqlite_master
+        WHERE type = 'table' AND name = $table
+      }]
+      regexp -- {\(([^()]+)\)} $fields - m
+      set l [split $m ","]
+      set fields [lmap x $l {set x "\[[lindex $x 0]\] ([lindex $x 1])"}]
+      foreach field $fields {
+        set id [$tree insert $node end -text $field]
+      }
+    } 
+  }
+   
+  grid $w.sidepane.tree -row 0 -column 0 -sticky nsew
+  grid $w.sidepane.vs   -row 0 -column 1 -sticky nsew
+  
+  frame $w.fdown -height 300 -width 500 -pady 5 -padx 5 -relief sunken
+  grid $w.fdown -row 1 -column 0 -columnspan 2 -sticky nsew
+  
+  grid rowconfigure $w.sidepane 0 -weight 1
+  grid rowconfigure $w 0 -weight 1
+  grid columnconfigure $w 0 -weight 1
+  
+  populate_tree $w.sidepane.tree
+  
+  proc run_query {w} {
+    upvar columns columns
+    
+    set tid [$w.note select]
+    
+    catch {destroy $w.fdown.s}
+    catch {destroy $w.fdown.text}
+    catch {destroy $w.fdown.t}
+    catch {destroy $w.fdown.hs}
+    
+    if {[lindex [split $tid "."] end] == "sqlview"} {
+      set query [$w.note.sqlview.text get 1.0 end]
+      
+      if {[regexp -all -nocase -- {\yFROM\y} $query] > 1} {
+        pack [text $w.fdown.text] -side top -anchor ne -fill both
+        $w.fdown.text insert end "Subqueries/multiple queries not allowed."
+        return
+      } elseif {[regexp -all -nocase -- {\yINTO\y} $query]} {
+        pack [text $w.fdown.text] -side top -anchor ne -fill both
+        $w.fdown.text insert end "Creation of tables not allowed."
+        return
+      }
+      
+      if {[catch {set results [ts eval $query]} err]} {
+        pack [text $w.fdown.text] -side top -anchor ne -fill both
+        $w.fdown.text insert end "$err"
+        return
+      } else {
+        if {[regexp -nocase -- {select } $query]} {
+          regexp -nocase -- {select\s+(.+)from} $query - fields
+          set colnames [lmap {f s} [regexp -inline -all -nocase {(\[[^\]]+\]|[^, \n]+)(?:,|$)} [string trim $fields]] {set s "10 $s"}]
+          scrollbar $w.fdown.s -command "$w.fdown.t yview"
+          scrollbar $w.fdown.hs -command "$w.fdown.t xview" -orient horizontal
+          if {[set sidx [lsearch $colnames "*\**"]] > -1} {
+            set cols {}
+            ts eval $query values {lappend cols $values(*); break}
+            set colnames [lmap x [lindex $cols 0] {set x "10 $x"}]
+          }
+          set columns [lindex $cols 0]
+          tablelist::tablelist $w.fdown.t -columns [join $colnames " "] \
+            -stretch all -background white -yscrollcommand "$w.fdown.s set" \
+            -resizablecolumns 1 -selecttype cell -showeditcursor 0 \
+            -showseparators 1 -xscrollcommand "$w.fdown.hs set"
+          grid $w.fdown.t -row 0 -column 0 -sticky nsew
+          grid $w.fdown.s -row 0 -column 1 -sticky nsew
+          grid $w.fdown.hs -row 1 -column 0 -sticky nsew
+          
+          foreach $columns $results {
+            set vars [lmap x $columns {set $x}]
+            $w.fdown.t insert end $vars
+          }
+        } else {
+          pack [text $w.fdown.text] -side top -anchor ne -fill both
+          $w.fdown.text insert end "Query successfully executed!"
+        }
+      }
+    } else {
+      set table [$w.note.tableview.tablecbox get]
+      
+      set ws [winfo children $w.note.tableview]
+      set columns {}
+      set param {}
+      foreach field $ws {
+        if {[regexp -- {fieldscbox\d+} $field]} {
+          set toadd [$field get]
+          if {$toadd == "*"} {
+            set all [lindex [$field configure -values] 4]
+            set all [lreplace $all 0 0]
+            foreach item $all {lappend columns $item}
+          } elseif {$toadd != ""} {
+            lappend columns $toadd
+          } else {
+            continue
+          }
+        }
+        set f [winfo parent $field]
+        if {[regexp -- {fieldccond(\d+)} $field - s] &&
+            [$field get] != "" &&
+            [$f.fieldpcond$s get] != ""
+        } {
+          if {$param != ""} {
+            set i $s
+            while {$i > 0} {
+              incr i -1
+              if {[$f.fieldscbox$i get] != ""} {break}
+            }
+            append param " [$f.fieldcomp$i get] "
+          }
+          append param [$f.fieldscbox$s get] " [$field get] "  "'[string map {' ''} [$f.fieldpcond$s get]]'"
+        }
+        
+      }
+
+      set colnames [lmap x $columns {set x "10 $x"}]
+      scrollbar $w.fdown.s -command "$w.fdown.t yview"
+      scrollbar $w.fdown.hs -command "$w.fdown.t xview" -orient horizontal
+      
+      set code "SELECT [join $columns ","] FROM $table"
+      
+      if {$param != ""} {
+        append code " WHERE $param"
+      }
+      if {[catch {set results [ts eval $code]} err]} {
+        pack [text $w.fdown.text] -side top -anchor ne -fill both
+        $w.fdown.text insert end "Please ensure that a table and at least 1 field have been selected."
+        return
+      }
+      
+      tablelist::tablelist $w.fdown.t -columns [join $colnames " "] \
+        -stretch all -background white -yscrollcommand "$w.fdown.s set" \
+        -resizablecolumns 1 -selecttype cell -showeditcursor 0 \
+        -showseparators 1 -xscrollcommand "$w.fdown.hs set"
+      grid $w.fdown.t -row 0 -column 0 -sticky nsew
+      grid $w.fdown.s -row 0 -column 1 -sticky nsew
+      grid $w.fdown.hs -row 1 -column 0 -sticky nsew
+      
+      grid columnconfigure $w.fdown 0 -weight 1
+      grid rowconfigure $w.fdown 0 -weight 1
+      
+      foreach $columns $results {
+        set vars [lmap x $columns {set $x}]
+        $w.fdown.t insert end $vars
+      }
+      
+    }
+    return
+  }
+  
+  proc update_tableview {w stat} {
+    set n [winfo parent $w]
+    set ws [winfo children $n]
+    set table [$n.tablecbox get]
+    foreach w $ws {
+      if {[regexp -- {field} $w] && $stat} {
+        destroy $w
+      }
+    }
+    set ws [winfo children $n]
+    set fields [lsearch -all -regexp -nocase -inline $ws {fieldlab\d+}]
+    if {$fields == {}} {
+      set num 1
+    } else {
+      set fields [lmap m $fields {regexp -inline -- {\d+} $m}]
+      set num [lindex [lsort -integer $fields] end]
+      if {[$n.fieldscbox$num get] == "" || $num == 10} {return}
+      incr num
+    }
+    label $n.fieldlab$num -text "Field $num:"
+    grid $n.fieldlab$num -row $num -column 0 -pady 5 -padx 5
+    
+    set cols {}
+    ts eval "SELECT * FROM $table" values {lappend cols $values(*); break}
+    ttk::combobox $n.fieldscbox$num -values [list * {*}[lindex $cols 0]]
+    grid $n.fieldscbox$num -row $num -column 1
+    
+    label $n.fieldlcond$num -text "where"
+    grid $n.fieldlcond$num -row $num -column 2 -pady 5 -padx 5
+    ttk::combobox $n.fieldccond$num -values {= > >= < <= LIKE}
+    grid $n.fieldccond$num -row $num -column 3 -pady 5 -padx 5
+    entry $n.fieldpcond$num
+    grid $n.fieldpcond$num -row $num -column 4 -pady 5 -padx 5
+    
+    if {$num > 1} {
+      set prev [expr {$num-1}]
+      ttk::combobox $n.fieldcomp$prev -values {AND OR}
+      $n.fieldcomp$prev set "AND"
+      grid $n.fieldcomp$prev -row $prev -column 5 -pady 5 -padx 5
+    }
+    
+    bind $n.fieldscbox$num <<ComboboxSelected>> {update_tableview %W 0}
+  }
+  
+  set columns {}
+  proc export_results {w} {
+    upvar columns columns
+    if {![winfo exists $w.fdown.t]} {
+      tk_messageBox -icon error -title Error -message "No query has been run yet!"
+      return
+    }
+    
+    set types {{"Text files"   .txt}}
+    set files [glob -nocomplain Query*.txt]
+    if {[llength $files] == 0} {
+      set number 1
+    } else {
+      regexp -- {Query(\d+)\.txt} [lindex $files end] - number
+      incr number
+    }
+    set file [tk_getSaveFile -filetypes $types -parent $w \
+      -initialfile "Query$number.txt" -initialdir [pwd] \
+      -defaultextension .txt]
+    if {$file == ""} {return}
+    set f [open $file w]
+    puts $f [join $columns \t]
+    for {set i 0} {$i < [$w.fdown.t size]} {incr i} {
+      set results [lindex [$w.fdown.t rowconfigure $i -text] 4]
+      puts $f [join $results \t]
+    }
+    close $f
+    exec {*}[auto_execok start] "Excel.exe" $file
+    return
+  }
 }
 
 new_row .fdown.tab ts
