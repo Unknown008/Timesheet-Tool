@@ -163,28 +163,29 @@ proc ts_load {time} {
       set date [get_friday [clock scan now]]
     }
   }
-  .fup.left.date configure -text $date
+  .fup.left.f.date configure -text $date
   down_update
   sum_update
 }
 
 proc down_update {} {
-  set date [lindex [.fup.left.date configure -text] 4]
+  set date [lindex [.fup.left.f.date configure -text] 4]
   set lines [ts eval {
     SELECT * FROM timesheet WHERE week = $date
     ORDER BY week, code, status, timetype, type, activity, description, date
   }]
   reset_timesheet
+  set tab .fdown.tab
   if {$lines != ""} {
     set cline ""
     set clist ""
     foreach {w c s tt t a des d h} $lines {
-      set row [expr {[.fdown.tab size]-1}]
+      set row [expr {[$tab size]-1}]
       set wday [clock format [clock scan $d -format {%d/%m/%Y}] -format %u]
       set day [expr {$wday > 5 ? $wday-6 : $wday+1}]
       if {"$w$c$s$tt$t$a$des" != $cline} {
         if {$cline != ""} {
-          .fdown.tab insert $row [list {*}$clist {*}$fweek]
+          $tab insert $row [list {*}$clist {*}$fweek]
         }
         set clist [list $tt $t $c $a $s $des]
         set cline "$w$c$s$tt$t$a$des"
@@ -192,7 +193,7 @@ proc down_update {} {
       }
       lset fweek $day $h
     }
-    .fdown.tab insert $row [list $tt $t $c $a $s $des {*}$fweek]
+    $tab insert $row [list $tt $t $c $a $s $des {*}$fweek]
     for {set i 6} {$i <= 13} {incr i} {
       top_update $i
     }
@@ -203,7 +204,7 @@ proc down_update {} {
 }
 
 proc save_timesheet {} {
-  set wk [lindex [.fup.left.date configure -text] 4]
+  set wk [lindex [.fup.left.f.date configure -text] 4]
   ts eval {DELETE FROM timesheet WHERE week = $wk}
   for {set i 0} {$i < [.fdown.tab size]} {incr i} {
     set details [lindex [.fdown.tab rowconfigure $i -text] 4]
@@ -224,7 +225,6 @@ proc save_timesheet {} {
       ts eval "
         INSERT INTO timesheet VALUES([join $repeats {,}],'$d',$dayhours)
       "
-      puts "[join $repeats ","],'$d',$dayhours"
     }
   }
   tk_messageBox -title "Notice" -message "Timesheet saved!"
@@ -286,7 +286,7 @@ proc calendar {w} {
     for {set d 1} {$d <= $nmax} {incr d} {
       set id [$canvas create text $x $y -text $d -tag day]
       if {[format %02d $d] == [clock format [clock scan now] -format %d]
-        && $month == [clock format [clock scan now] -format %m]
+        && [format %02d $month] == [clock format [clock scan now] -format %m]
         && $year == [clock format [clock scan now] -format %Y]
       } {
         $canvas itemconfigure $id -fill red -tags {day cday}
@@ -355,7 +355,7 @@ proc calendar {w} {
     if {$cal == ".cal"} {
       set cdate [clock scan $cdate -format {%d/%m/%Y}]
       set fdate [get_friday $cdate]
-      .fup.left.date configure -text $fdate
+      .fup.left.f.date configure -text $fdate
       down_update
     } else {
       set e [winfo parent $cal]
@@ -451,8 +451,11 @@ pack [frame .fdown] -side top -fill both -anchor n -pady 5 -expand 1
 pack [frame .fup.left] -side left -fill x -anchor w -padx 5
 pack [frame .fup.right] -side right -fill x -anchor e -padx 5
 
-grid [label .fup.left.date -text [get_friday [clock scan now]]] -row 0 -column 0
-bind .fup.left.date <ButtonPress-1> {calendar .}
+grid [frame .fup.left.f] -row 0 -column 0
+pack [button .fup.left.f.l -relief flat -command {go_week -1} -text "<"] -side left -anchor w
+pack [label .fup.left.f.date -text [get_friday [clock scan now]]] -side left -anchor n
+pack [button .fup.left.f.r -relief flat -command {go_week 1} -text ">"] -side left -anchor e
+bind .fup.left.f.date <ButtonPress-1> {calendar .}
 
 set f .fup.left
 grid [label $f.c -text "Chargeable (C)" -justify left] -row 1 -column 0 -sticky w
@@ -717,18 +720,17 @@ bind $f.tab <<TablelistCellUpdated>> {
     top_update $y
     total_update $x
     sum_update
-  }
-  if {$y in {0 1}} {
+  } elseif {$y in {0 1}} {
     for {set i 6} {$i < 13} {incr i} {
       top_update $i
     }
   }
   if {
     [expr {$x+1}] == [%W size] && 
-    [lindex %d 1] != 0 &&
+    $x != 0 &&
     [lindex [%W cellconfigure [join %d ,] -text] 4] ne ""
   } {
-    new_row .fdown.tab ts
+    new_row %W ts
   }
 }
 
@@ -765,7 +767,7 @@ proc export_by_code {} {
       set f [open $file w]
       puts $f "Week\tEngagement Code\tParked?(Y/N)\tTimeType\tType\tActivity\tDescription\tDate\tHours"
       foreach {w c s tt t a des d h} $lines {
-        puts $f "$w $c $s $tt $t $a $des $d $h"
+        puts $f "$w\t$c\t$s\t$tt\t$t\t$a\t$des\t$d\t$h"
       }
       tk_messageBox -title Complete -icon info -message "Export complete!"
       close $f
@@ -820,7 +822,7 @@ proc export_parked {} {
       foreach {w c s tt t a des d h} $lines {
         if {($w <= $start || $start == "start") &&
             ($w >= $end || $end == "end")} {
-          puts $f "$w $c $s $tt $t $a $des $d $h"
+          puts $f "$w\t$c\t$s\t$tt\t$t\t$a\t$des\t$d\t$h"
         }
       }
       tk_messageBox -title Complete -icon info -message "Export complete!"
@@ -1175,12 +1177,19 @@ proc ts_about {} {
     destroy .abt
     focus .
   }
-  
   focus .abt
 }
 
 proc linkify {w state} {
   $w configure -cursor [expr {$state ? "hand2" : "ibeam"}]
+}
+
+proc go_week {amt} {
+  set d [lindex [.fup.left.f.date configure -text] 4]
+  set newdate [get_friday [clock add [clock scan $d -format {%d/%m/%Y}] $amt week]]
+  .fup.left.f.date configure -text $newdate
+  down_update
+  sum_update
 }
 
 new_row .fdown.tab ts
