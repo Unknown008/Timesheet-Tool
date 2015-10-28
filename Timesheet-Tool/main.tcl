@@ -144,15 +144,15 @@ proc get_friday {date} {
   return $fdate
 }
 
-proc reset_timesheet {} {
+proc reset_timesheet {{new 1}} {
   set f .fup.right
   for {set a 1} {$a < 9} {incr a} {
     for {set b 1} {$b < 7} {incr b} {
       $f.$a$b configure -text 0.0
     }
   }
-  .fdown.tab delete top bottom
-  new_row .fdown.tab ts
+  while {[.fdown.tab size] > 0} {.fdown.tab delete top bottom}
+  if {$new} {new_row .fdown.tab ts}
 }
 
 proc ts_load {time} {
@@ -352,7 +352,6 @@ proc calendar {w} {
     if {$cdate eq ""} {
       set cdate [$cal.f2.e get]
     }
-    puts $cal
     if {$cal == ".cal"} {
       set cdate [clock scan $cdate -format {%d/%m/%Y}]
       set fdate [get_friday $cdate]
@@ -721,14 +720,13 @@ bind $f.tab <<TablelistCellUpdated>> {
     top_update $y
     total_update $x
     sum_update
-  } elseif {$y in {0 1}} {
+  } elseif {$y < 2} {
     for {set i 6} {$i < 13} {incr i} {
       top_update $i
     }
   }
   if {
-    [expr {$x+1}] == [%W size] && 
-    $x != 0 &&
+    [expr {$x+1}] == [%W size] &&
     [lindex [%W cellconfigure [join %d ,] -text] 4] ne ""
   } {
     new_row %W ts
@@ -987,7 +985,6 @@ proc format_as {val} {
 
 
 proc test_alarm {} {
-  puts testing_alarm
   set tests [ts eval {SELECT * FROM alarm WHERE state = 'On'}]
   foreach {n r w t s h d} $tests {
     set delay [expr {([clock scan "$w $t"]-[clock scan now])*1000}]
@@ -1328,6 +1325,9 @@ proc sql_query {} {
           grid $w.fdown.s -row 0 -column 1 -sticky nsew
           grid $w.fdown.hs -row 1 -column 0 -sticky nsew
           
+          grid columnconfigure $w.fdown 0 -weight 1
+          grid rowconfigure $w.fdown 0 -weight 1
+      
           foreach $columns $results {
             set vars [lmap x $columns {set $x}]
             $w.fdown.t insert end $vars
