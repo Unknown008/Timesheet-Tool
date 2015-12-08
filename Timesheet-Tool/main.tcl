@@ -1152,7 +1152,7 @@ proc ts_about {} {
   
   $w.fdown.t insert end "
     Timesheet Tool - Recording tool, making timesheet reconciliations easier!
-    Copyright \u00A9 2015 Jerry Yong <jeryysk.stillwaters@gmail.com>
+    Copyright \u00A9 2015 Jerry Yong <jerryysk.stillwaters@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
